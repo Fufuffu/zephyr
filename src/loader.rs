@@ -12,7 +12,7 @@ pub(crate) fn load_image(path: &Path) -> Result<SourceImage, LoadError> {
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
 
-    let name = path.file_name().and_then(|n| n.to_str()).ok_or(LoadError::InvalidFileName)?.to_string();
+    let name = path.file_stem().and_then(|n| n.to_str()).ok_or(LoadError::InvalidFileName)?.to_string().replace(" ", "");
 
     Ok(SourceImage {
         data: rgba,
