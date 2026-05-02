@@ -90,7 +90,8 @@ pub(crate) fn export_atlas(
 
     export_texture(&converted_image, &texture_path, settings)?;
     // export_metadata(atlas, output_path, &texture_path, settings, sprite_properties, animations)?;
-    export_metadata_as_code(atlas, output_path, &texture_path, settings, sprite_properties, animations)?;
+    export_metadata_as_c_code(atlas, output_path, &texture_path, settings, sprite_properties, animations)?;
+    export_metadata_as_odin_code(atlas, output_path, &texture_path, settings, sprite_properties, animations)?;
 
     Ok(())
 }
@@ -193,7 +194,7 @@ fn export_texture(image: &DynamicImage, path: &str, settings: &PackSettings) -> 
     Ok(())
 }
 
-fn export_metadata_as_code(
+fn export_metadata_as_c_code(
     atlas: &PackedAtlas,
     output_base_path: &str,
     texture_filename: &str,
@@ -207,25 +208,29 @@ fn export_metadata_as_code(
 
     let code_path = format!("{}.h", output_base_path);
     let sprite_count = atlas.placements.len();
-    let atlas_data: Vec<String> = metadata.frames.iter().map(|f| {
-        format!(r#"    {{ "{file}", {posX}, {posY}, {width}, {height}, {trimmed}, {trimX}, {trimY}, {orWidth}, {orHeight} }},"#, 
-        file = f.filename,
-        posX = f.frame.x,
-        posY = f.frame.y,
-        width = f.frame.w,
-        height = f.frame.h,
-        trimmed = f.trimmed,
-        trimX = f.offset.clone().map(|o| o.x).unwrap_or(0),
-        trimY = f.offset.clone().map(|o| o.y).unwrap_or(0),
-        orWidth = f.original_size.clone().map(|s| s.w).unwrap_or(0),
-        orHeight = f.original_size.clone().map(|s| s.h).unwrap_or(0),
-        )
-    }).collect();
+    let atlas_data: Vec<String> = metadata
+        .frames
+        .iter()
+        .map(|f| {
+            format!(
+                r#"    {{ "{file}", {posX}, {posY}, {width}, {height}, {trimmed}, {trimX}, {trimY}, {orWidth}, {orHeight} }},"#,
+                file = f.filename,
+                posX = f.frame.x,
+                posY = f.frame.y,
+                width = f.frame.w,
+                height = f.frame.h,
+                trimmed = f.trimmed,
+                trimX = f.offset.clone().map(|o| o.x).unwrap_or(0),
+                trimY = f.offset.clone().map(|o| o.y).unwrap_or(0),
+                orWidth = f.original_size.clone().map(|s| s.w).unwrap_or(0),
+                orHeight = f.original_size.clone().map(|s| s.h).unwrap_or(0),
+            )
+        })
+        .collect();
     let atlas_data_str = atlas_data.join("\n");
 
-    let code =
-        format!(
-r###"/////////////////////////////////////////////////////////
+    let code = format!(
+        r###"/////////////////////////////////////////////////////////
 // Zephyr C code exporter v0.1                         //
 /////////////////////////////////////////////////////////
         
@@ -243,8 +248,71 @@ typedef struct AtlasSprite {{
 static AtlasSprite atlasData[{sprite_count}] = {{
 {atlas_data_str}
 }};
-"###);
-    
+"###
+    );
+
+    fs::write(&code_path, code)?;
+
+    Ok(())
+}
+
+fn export_metadata_as_odin_code(
+    atlas: &PackedAtlas,
+    output_base_path: &str,
+    texture_filename: &str,
+    settings: &PackSettings,
+    sprite_properties: &HashMap<String, SpriteProperties>,
+    animations: &[Animation],
+) -> Result<(), ExportError> {
+    let texture_name = Path::new(texture_filename).file_name().and_then(|n| n.to_str()).unwrap_or(texture_filename);
+
+    let metadata = build_metadata(atlas, texture_name, settings, sprite_properties, animations);
+
+    let code_path = format!("{}.odin", output_base_path);
+    let sprite_count = atlas.placements.len();
+
+    let atlas_image: Vec<String> = metadata.frames.iter().map(|f| format!(r#"    {file},"#, file = f.filename,)).collect();
+    let atlas_image_str = atlas_image.join("\n");
+
+    let atlas_data: Vec<String> = metadata
+        .frames
+        .iter()
+        .map(|f| {
+            format!(
+                r#"    .{file} = {{ {posX}, {posY}, {width}, {height} }},"#,
+                file = f.filename,
+                posX = f.frame.x,
+                posY = f.frame.y,
+                width = f.frame.w,
+                height = f.frame.h,
+            )
+        })
+        .collect();
+    let atlas_data_str = atlas_data.join("\n");
+
+    let code = format!(
+        r###"/////////////////////////////////////////////////////////
+// Zephyr Odin code exporter v0.1                      //
+/////////////////////////////////////////////////////////
+package game
+
+Atlas_Sprite :: struct {{
+	position_x: f32,
+	position_y: f32,
+	width:      int,
+	height:     int,
+}}
+
+Atlas_Image :: enum {{
+{atlas_image_str}
+}}
+
+ATLAS_DATA := [Atlas_Image]Atlas_Sprite {{
+{atlas_data_str}
+}}
+"###
+    );
+
     fs::write(&code_path, code)?;
 
     Ok(())
